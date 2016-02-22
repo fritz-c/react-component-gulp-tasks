@@ -50,21 +50,24 @@ module.exports = function (gulp, config) {
 	}
 
 	function buildScripts (dev) {
-		return merge(targets.map(function(target) {
-			var dest = target.dest;
-			var opts = dev ? watchify.args : {};
-			opts.debug = !!dev;
-			opts.hasExports = true;
+		return function () {
+			var bundles = [];
 
-			return function () {
+			targets.forEach(function(target) {
+				var scriptConfig = target.scripts;
+				var dest = scriptConfig.dest;
+				var opts = dev ? watchify.args : {};
+				opts.debug = !!dev;
+				opts.hasExports = true;
+
 				var common = browserify(opts);
 
 				var bundle = browserify(opts);
 				bundle.transform(babelify, { presets: ["react"] });
 				config.aliasify && bundle.transform(aliasify);
-				bundle.require('./' + target.src, { expose: target.name });
+				bundle.require('./' + scriptConfig.src, { expose: scriptConfig.name });
 
-				var depsBundle = config.commonBundles[target.commonBundle];
+				var depsBundle = config.commonBundles[scriptConfig.commonBundle];
 
 				depsBundle.dependencies.forEach(function (pkg) {
 					common.require(pkg);
@@ -72,18 +75,18 @@ module.exports = function (gulp, config) {
 				});
 
 				if (dev) {
-					watchBundle(common, 'common.js', dest);
+					watchBundle(common, 'common.js', depsBundle.dest);
 					watchBundle(bundle, 'bundle.js', dest);
 				}
 
-				var bundles = [
-					doBundle(common, 'common.js', dest),
+				bundles = bundles.concat([
+					doBundle(common, 'common.js', depsBundle.dest),
 					doBundle(bundle, 'bundle.js', dest)
-				];
+				]);
+			});
 
-				return merge(bundles.concat());
-			};
-		}));
+			return merge(bundles.concat());
+		};
 	}
 
 	var targets = config.targetKeys.map(function(targetKey) {
@@ -120,7 +123,7 @@ module.exports = function (gulp, config) {
 		'build:scripts',
 	]);
 
-	gulp.task('watch:css', [
+	gulp.task('watch', [
 		'build:css'
 	], function () {
 		buildScripts(true)();

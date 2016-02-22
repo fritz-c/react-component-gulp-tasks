@@ -22,7 +22,7 @@ function readCommandLineArguments(config) {
 			'targets',
 		],
 		default : {
-			targets: process.env.GULP_BUILD_TARGETS ? [process.env.GULP_BUILD_TARGETS : Object.keys(config.targets)[0],
+			targets: process.env.GULP_BUILD_TARGETS || Object.keys(config.targets)[0],
 		}
 	};
 
@@ -35,7 +35,6 @@ function readCommandLineArguments(config) {
  */
 function initTasks (gulp, config) {
 	var pkg    = readPackageJSON();
-	var name   = capitalize(camelCase(config.target.pkgName || pkg.name));
 	var clArgs = readCommandLineArguments(config);
 	var targetKeys = clArgs.targets instanceof Array ? clArgs.targets : clArgs.targets.split(' ');
 
@@ -44,13 +43,10 @@ function initTasks (gulp, config) {
 		targetKeys : targetKeys,
 	});
 
-	require('./tasks/dev')(gulp, config);
+	require('./tasks/examples')(gulp, config);
 
-	var buildTasks = ['build:dist'];
-	var cleanTasks = ['clean:dist'];
-
-	gulp.task('build', buildTasks);
-	gulp.task('clean', cleanTasks);
+	gulp.task('default', ['watch']);
+	gulp.task('deploy', ['deploy:css', 'deploy:scripts']);
 }
 
 module.exports = initTasks;

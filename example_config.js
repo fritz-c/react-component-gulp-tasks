@@ -12,7 +12,8 @@ module.exports = {
 				'react',
 				'react-dom',
 				'react-select',
-			]
+			],
+			dest: 'src/asfasggsd/dsggds/public',
 		}
 	},
 
