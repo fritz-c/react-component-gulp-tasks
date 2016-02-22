@@ -1,25 +1,32 @@
-var aliasify = require('aliasify');
-var babelify = require('babelify');
-var browserify = require('browserify');
-var chalk = require('chalk');
-var connect = require('gulp-connect');
-var del = require('del');
-var gutil = require('gulp-util');
-var less = require('gulp-less');
-var merge = require('merge-stream');
-var shim = require('browserify-shim');
-var source = require('vinyl-source-stream');
-var watchify = require('watchify');
+var aliasify     = require('aliasify');
+var babelify     = require('babelify');
+var browserify   = require('browserify');
+var chalk        = require('chalk');
+var gutil        = require('gulp-util');
+var less         = require('gulp-less');
+var merge        = require('merge-stream');
+var source       = require('vinyl-source-stream');
+var watchify     = require('watchify');
+var notify       = require("gulp-notify");
+var postcss      = require('gulp-postcss');
+var autoprefixer = require('autoprefixer');
+var cssnano      = require('cssnano');
+
+function handleErrors() {
+    var args = Array.prototype.slice.call(arguments);
+    notify.onError({
+        title: "Compile Error",
+        message: "<%= error.message %>"
+    }).apply(this, args);
+    this.emit('end'); // Keep gulp from hanging on this task
+}
 
 module.exports = function (gulp, config) {
 	function doBundle (target, name, dest) {
 		return target.bundle()
-			.on('error', function (e) {
-				gutil.log('Browserify Error', e);
-			})
+			.on('error', handleErrors)
 			.pipe(source(name))
 			.pipe(gulp.dest(dest))
-			.pipe(connect.reload());
 	}
 
 	function watchBundle (target, name, dest) {
@@ -42,123 +49,86 @@ module.exports = function (gulp, config) {
 			});
 	}
 
-	function buildExampleScripts (dev) {
-		var dest = config.example.dist;
-		var opts = dev ? watchify.args : {};
-		opts.debug = !!dev;
-		opts.hasExports = true;
+	function buildScripts (dev) {
+		return merge(targets.map(function(target) {
+			var dest = target.dest;
+			var opts = dev ? watchify.args : {};
+			opts.debug = !!dev;
+			opts.hasExports = true;
 
-		return function () {
-			var common = browserify(opts);
+			return function () {
+				var common = browserify(opts);
 
-			var bundle = browserify(opts);
-			bundle.transform(babelify.configure({
-				plugins: [require('babel-plugin-object-assign')]
-			}));
-			config.aliasify && bundle.transform(aliasify);
-			bundle.require('./' + config.component.src + '/' + config.component.file, { expose: config.component.pkgName });
+				var bundle = browserify(opts);
+				bundle.transform(babelify, { presets: ["react"] });
+				config.aliasify && bundle.transform(aliasify);
+				bundle.require('./' + target.src, { expose: target.name });
 
-			var standalone = false;
-			if (config.example.standalone) {
-				standalone = browserify('./' + config.component.src + '/' + config.component.file, { standalone: config.component.name });
-				standalone.transform(babelify.configure({
-					plugins: [require('babel-plugin-object-assign')]
-				}));
-				config.aliasify && standalone.transform(aliasify);
-				standalone.transform(shim);
-			}
+				var depsBundle = config.commonBundles[target.commonBundle];
 
-			var examples = config.example.scripts.map(function (file) {
-				var fileBundle = browserify(opts);
-				fileBundle.exclude(config.component.pkgName);
-				fileBundle.add('./' + config.example.src + '/' + file);
-				fileBundle.transform(babelify.configure({
-					plugins: [require('babel-plugin-object-assign')]
-				}));
-				fileBundle.transform('brfs');
-				config.aliasify && fileBundle.transform(aliasify);
-				return {
-					file: file,
-					bundle: fileBundle
-				};
-			});
-
-			config.component.dependencies.forEach(function (pkg) {
-				common.require(pkg);
-				bundle.exclude(pkg);
-				if (standalone) standalone.exclude(pkg);
-				examples.forEach(function (eg) {
-					eg.bundle.exclude(pkg);
+				depsBundle.dependencies.forEach(function (pkg) {
+					common.require(pkg);
+					bundle.exclude(pkg);
 				});
-			});
 
-			if (dev) {
-				watchBundle(common, 'common.js', dest);
-				watchBundle(bundle, 'bundle.js', dest);
-				if (standalone) watchBundle(standalone, 'standalone.js', dest);
-				examples.forEach(function (eg) {
-					watchBundle(eg.bundle, eg.file, dest);
-				});
-			}
+				if (dev) {
+					watchBundle(common, 'common.js', dest);
+					watchBundle(bundle, 'bundle.js', dest);
+				}
 
-			var bundles = [
-				doBundle(common, 'common.js', dest),
-				doBundle(bundle, 'bundle.js', dest)
-			];
+				var bundles = [
+					doBundle(common, 'common.js', dest),
+					doBundle(bundle, 'bundle.js', dest)
+				];
 
-			if (standalone) {
-				bundles.push(doBundle(standalone, 'standalone.js', dest));
-			}
-
-			return merge(bundles.concat(examples.map(function (eg) {
-				return doBundle(eg.bundle, eg.file, dest);
-			})));
-		};
+				return merge(bundles.concat());
+			};
+		}));
 	}
 
-	gulp.task('clean:examples', function () { return del([config.example.dist]); });
-	gulp.task('watch:example:scripts', buildExampleScripts(true));
-	gulp.task('build:example:scripts', buildExampleScripts());
-
-	gulp.task('build:example:files', function () {
-		return gulp.src(config.example.files, { cwd: config.example.src, base: config.example.src })
-			.pipe(gulp.dest(config.example.dist))
-			.pipe(connect.reload());
+	var targets = config.targetKeys.map(function(targetKey) {
+		var target  = config.targets[targetKey];
+		target.name = targetKey;
+		return target;
 	});
 
-	gulp.task('build:example:css', function () {
-		if (!config.example.less) return;
+	gulp.task('watch:scripts', buildScripts(true));
+	gulp.task('build:scripts', buildScripts(false));
 
-		return gulp.src(config.example.src + '/' + config.example.less)
-			.pipe(less())
-			.pipe(gulp.dest(config.example.dist))
-			.pipe(connect.reload());
+	var processors = [
+		autoprefixer({ browsers: ['IE >= 8', '> 1%'], cascade: false }),
+		cssnano({ zindex: false }),
+	];
+
+	gulp.task('build:css', function () {
+		var cssBuilds = [];
+		config.targetKeys.forEach(function(targetKey) {
+			var target = config.targets[targetKey].stylesheets;
+			var cssBuild = gulp.src(target.src)
+				.pipe(less().on('error', handleErrors))
+ 				.pipe(postcss(processors).on('error', handleErrors))
+				.pipe(gulp.dest(target.dest));
+
+			cssBuilds.push(cssBuild);
+		});
+
+		return merge(cssBuilds);
 	});
 
-	gulp.task('build:examples', [
-		'build:example:files',
-		'build:example:css',
-		'build:example:scripts'
+	gulp.task('build', [
+		'build:css',
+		'build:scripts',
 	]);
 
-	gulp.task('watch:examples', [
-		'build:example:files',
-		'build:example:css'
+	gulp.task('watch:css', [
+		'build:css'
 	], function () {
-		buildExampleScripts(true)();
-		gulp.watch(config.example.files.map(function (i) {
-			return config.example.src + '/' + i;
-		}), ['build:example:files']);
-
+		buildScripts(true)();
 		var watchLESS = [];
-		if (config.example.less) {
-			watchLESS.push(config.example.src + '/' + config.example.less);
-		}
+		config.targetKeys.forEach(function(targetKey) {
+			watchLESS.push(config.targets[targetKey].stylesheets.src);
+		});
 
-		if (config.component.less && config.component.less.path) {
-			watchLESS.push(config.component.less.path + '/**/*.less');
-		}
-
-		gulp.watch(watchLESS, ['build:example:css']);
+		gulp.watch(watchLESS, ['build:css']);
 	});
 };

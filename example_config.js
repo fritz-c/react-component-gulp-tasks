@@ -6,31 +6,27 @@ var pkg = JSON.parse(require('fs').readFileSync('./package.json'));
 var dependencies = [].concat(Object.keys(pkg.dependencies));
 
 module.exports = {
-	component: {
-		file: 'MyComponent.js',
-		name: 'MyComponent',
-		src: 'src',
-		dist: 'dist',
-		pkgName: pkg.name,
-		dependencies: dependencies,
-		less: {
-			entry: 'my-component.less',
-			path: 'less'
+	commonBundles: {
+		main: {
+			dependencies: [
+				'react',
+				'react-dom',
+				'react-select',
+			]
 		}
 	},
 
-	example: {
-		src: 'example/src',
-		dist: 'example/dist',
-		files: [
-			'index.html',
-			'standalone.html'
-		],
-		scripts: [
-			'app.js'
-		],
-		less: [
-			'app.less'
-		]
+	targets: {
+		targetName: {
+			stylesheets: {
+				src  : 'src/asfasggsd/dsggds/private/**/*.less',
+				dest : 'src/asfasggsd/dsggds/public',
+			},
+			scripts: {
+				src          : 'src/asfasggsd/dsggds/private/entry.js',
+				dest         : 'src/asfasggsd/dsggds/public',
+				commonBundle : 'main'
+			},
+		}
 	}
 };
